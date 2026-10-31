@@ -1,192 +1,156 @@
 # shunt
 
-A Claude Code plugin that shunts I/O-heavy work to AiKA modes, saving 82-94% of tokens on large file reads and boilerplate generation.
+Route bulk reads and boilerplate generation from Claude Code or Codex to a
+separate CLI worker. No AiKA, Portal CLI, Portal account, or hosted mode setup.
 
-## How it works
+| Host / backend | Default worker model | Invocation |
+|---|---|---|
+| Claude Code / `claude` | `sonnet` | `claude --print` |
+| Codex / `codex` | `gpt-6.1-terra` | `codex exec` |
 
-Three layers, from hard gate to soft suggestion:
+These are independent CLI processes, not native `Agent` / `spawn_agent` calls.
+The main conversation stays on its current model. Files go straight from the
+script to the worker through stdin; only the answer or a file-write status comes
+back to the main agent. Each call starts fresh and does not inherit conversation
+history, project instructions, installed skills, or MCP tools. Supply all relevant
+conventions through the specification and reference files.
 
-1. **Hooks** block Claude from reading large files and redirect to the bulk-reader skill
-2. **Scripts** handle the AiKA invocation and output cleanup
-3. **Skills** tell Claude when and how to call the scripts
+## Requirements
 
-Claude never assembles bash pipelines from prose. It calls a script with named arguments. The scripts handle everything internally.
+- macOS or Linux, Bash, Python 3.9+, and `jq` for Claude hooks/evals.
+- An authenticated `claude` or `codex` CLI with access to the selected model.
+- Recent CLIs supporting the flags below. Tested with Claude Code 2.1.316 and
+  Codex CLI 0.166.0. Claude uses `--safe-mode` and structured output; Codex uses
+  `--ignore-user-config`, `--ephemeral`, and `--output-schema`.
 
-Delegation goes through the Portal CLI actions registry — one `aika:invoke-chat` call per delegation — so the plugin works against any Portal instance with AiKA enabled. Modes are addressed by name and resolved server-side: case-insensitive, preferring your own mode, then your groups', then public ones; a name matching nothing or several modes equally fails with the candidate ids.
+The worker uses that CLI's existing authentication. Usage counts against the
+selected account/plan or API billing; this is not free inference. In particular,
+`ANTHROPIC_API_KEY` can select API billing even when Claude also has a subscription
+login. See authentication troubleshooting below.
 
-## Prerequisites
+## Install
 
-- [`jq`](https://jqlang.org) — `brew install jq`
-- The **portal** plugin from this marketplace, which provides the Portal CLI that shunt delegates through:
-
-```bash
-claude plugin install portal@portal
-```
-
-Then, in a new session, set up and authenticate the CLI against your Portal instance:
-
-```text
-/portal:setup
-```
-
-Check whether the two AiKA modes (`bulk-reader` and `code-writer`) already exist on your instance — many instances ship them as public modes:
-
-```bash
-portal-cli actions aika:list-modes --json --input '{"search": "bulk-reader"}'
-```
-
-If they exist, no mode creation is needed — just install the plugin and go. If not, or to create your own customized versions (e.g. different model or instructions):
+From this fork's marketplace:
 
 ```bash
-portal-cli actions aika:create-mode --input '{
-  "name": "bulk-reader",
-  "description": "Bulk file reader for code analysis",
-  "instructions": "You are a precise code analyst. Read the provided files and answer the question concisely. Output structured bullets only. No greetings, no prose, no preambles, no summaries. Lead every bullet with the exact name, type, or line number. Use nested bullets for details. Skip anything the caller did not ask for.",
-  "tags": ["coding", "delegation"],
-  "resource_limits": { "temperature": 0.2 }
-}'
+# Claude Code
+claude plugin marketplace add happyhappy-jun/portal-ai-plugins
+claude plugin install shunt@portal
 
-portal-cli actions aika:create-mode --input '{
-  "name": "code-writer",
-  "description": "Boilerplate code generator",
-  "instructions": "You generate code files based on a spec and reference files. Match the existing patterns, conventions, naming, and style exactly. Output only the code — no explanations, no markdown fences unless asked. If the spec is ambiguous, make reasonable choices that match the patterns in the reference code.",
-  "tags": ["coding", "delegation"],
-  "resource_limits": { "temperature": 0.2 }
-}'
+# Codex
+codex plugin marketplace add happyhappy-jun/portal-ai-plugins
+codex plugin add shunt@portal
 ```
 
-A mode you create is private and owned by you, and name resolution prefers your own modes — so your customized `bulk-reader` automatically shadows the public one, no configuration needed.
+If a marketplace named `portal` already points at Spotify's upstream repository,
+update that source to this fork or use a local checkout for testing. Restart the
+host after installation. The two skills select the backend matching their host;
+a configured `SHUNT_BACKEND` takes precedence in the skill workflow.
 
-## Plugin structure
-
-```
-shunt/
-├── .claude-plugin/
-│   └── plugin.json          # Plugin manifest (name, description, version)
-├── hooks/
-│   ├── hooks.json           # Hook registration (PreToolUse matchers)
-│   ├── check-file-size      # Blocks Read on files > 350 lines
-│   └── check-bash-read      # Blocks cat/head/tail on large files
-├── scripts/
-│   ├── lib/
-│   │   └── aika.sh          # Shared aika:invoke-chat plumbing
-│   ├── bulk-read            # Invokes the bulk-reader mode
-│   └── code-write           # Invokes the code-writer mode
-├── skills/
-│   ├── bulk-reader/
-│   │   └── SKILL.md         # When/how to call bulk-read
-│   └── code-writer/
-│       └── SKILL.md         # When/how to call code-write
-└── evals/
-    ├── run.sh                # Runs hook + transport evals (51 tests)
-    ├── hook-evals.json       # Read hook test cases (17)
-    ├── bash-hook-evals.json  # Bash hook test cases (17)
-    ├── transport-evals.sh    # scripts/lib/aika.sh against a stubbed CLI (17)
-    ├── evals.json            # End-to-end skill test cases (3)
-    ├── benchmarks.json       # Token savings scenarios (4)
-    └── fixtures/             # Test fixture files
-```
-
-## Scripts
-
-### bulk-read
-
-Delegates file reading to AiKA. Files are wrapped in XML tags (`<file path="...">`) for clear boundaries.
+For a local Claude test:
 
 ```bash
-bulk-read --question "What does this service do?" --paths src/Service.java src/Handler.java
-
-# Follow-up: ask again with the same paths
-bulk-read --question "Which methods call the database?" --paths src/Service.java src/Handler.java
+claude --plugin-dir ./plugins/shunt
 ```
 
-### code-write
+For a local Codex test, add the checkout as a marketplace, then install `shunt@portal`.
+The repository includes `.agents/plugins/marketplace.json` and Shunt has its own
+`.codex-plugin/plugin.json`. Portal's root plugin and pi skills remain independent.
 
-Delegates boilerplate generation to AiKA. Strips markdown fences from output. Can write directly to disk via `--target`. `--reference` is required — without a file to match patterns against, the worker would generate context-free code that fits nothing in the project.
+## Usage
+
+Run from your project directory; input and output paths are relative to that directory.
+Use an absolute path to the installed script when the plugin lives elsewhere.
 
 ```bash
-# Generate and write to file
-code-write --spec "Write tests for UserService" --reference tests/OrderTest.java --target tests/UserTest.java
+plugins/shunt/scripts/bulk-read --backend claude \
+  --question "Which methods write to the database?" --paths src/Service.ts src/Handler.ts
 
-# Build on what was just generated by referencing it
-code-write --spec "Now add edge case tests" --reference tests/UserTest.java --target tests/UserEdgeCases.java
+plugins/shunt/scripts/bulk-read --backend codex \
+  --question "What does this module export?" --paths src/module.ts
 
-# Output to stdout
-code-write --spec "Generate a config stub" --reference config/existing.yaml
+plugins/shunt/scripts/code-write --backend claude \
+  --spec "Write tests for UserService" \
+  --reference tests/OrderTest.ts --reference src/UserService.ts \
+  --target tests/UserTest.ts
+
+plugins/shunt/scripts/code-write --backend codex \
+  --spec "Generate a config stub following this reference" \
+  --reference config/existing.yaml --target config/new.yaml
 ```
 
-### One shot per call
-
-`aika:invoke-chat` is ephemeral: nothing is stored server-side, and the action's own follow-up
-mechanism is for the caller to replay prior turns. Replaying a file corpus is the exact cost this
-plugin exists to avoid, so shunt does not do it — every call stands alone. Re-sending files is
-free where it matters, because the corpus goes to the worker model and never enters Claude's
-context.
-
-## Hooks
-
-### check-file-size (Read hook)
-
-Fires on every `Read` tool call. Blocks full-file reads on files exceeding `MIN_LINES` (default: 350, configurable via `SHUNT_MIN_LINES` env var). Allows through:
-- Targeted reads (offset or limit set)
-- Files under the threshold
-- Nonexistent files (let Read handle the error)
-
-### check-bash-read (Bash hook)
-
-Fires on every `Bash` tool call. Catches `cat`, `head`, `tail`, `less`, `more` on large files. Allows through:
-- Piped commands (`cat file | grep`) — targeted reads
-- Redirections (`cat file > out`) — not reading into context
-- Commands with flags that indicate targeted reads
-- Non-read commands (`git status`, `grep`, etc.)
+`--reference` is required and repeatable. Without `--target`, generated content goes
+to stdout. With `--target`, the parent script atomically replaces the file only
+after a successful non-empty structured result. Errors, missing responses, and
+timeouts leave the existing target untouched. Its parent directory must exist;
+symlink targets are rejected. Generated content, including embedded Markdown
+fences, is preserved. Review the diff and run appropriate checks afterward.
 
 ## Configuration
 
-All settings are environment variables — add them to the `env` block in `.claude/settings.json`.
+| Setting | Default | Meaning |
+|---|---|---|
+| `--backend` / `SHUNT_BACKEND` | Required outside the host skill | `claude` or `codex`; no binary-based guessing |
+| `--model` | Backend model below | Per-call model override |
+| `SHUNT_CLAUDE_MODEL` | `sonnet` | Claude worker model |
+| `SHUNT_CODEX_MODEL` | `gpt-6.1-terra` | Codex worker model |
+| `SHUNT_CLAUDE_BIN` / `SHUNT_CODEX_BIN` | `claude` / `codex` | Executable path (not shell arguments) |
+| `--timeout` / `SHUNT_TIMEOUT_SECONDS` | `180` | Maximum seconds per worker, including startup |
+| `SHUNT_MAX_PAYLOAD_BYTES` | `400000` | UTF-8 request size ceiling; split larger batches |
+| `SHUNT_MIN_LINES` | `350` | Claude large-read hook threshold |
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `SHUNT_MIN_LINES` | `350` | Line count above which the Read hook blocks and redirects |
-| `SHUNT_PORTAL_INSTANCE` | CLI default | Portal instance name or URL to invoke against |
-| `PORTAL_CLI_BIN` | `portal-cli`, else `npx` | Override how portal-cli is launched |
-| `SHUNT_MAX_PAYLOAD_BYTES` | `400000` (`120000` on Linux) | Request ceiling, since input travels through argv |
-| `SHUNT_TIMEOUT_SECONDS` | `180` | Timeout for one action invocation |
-| `SHUNT_BULK_READER_MODE_ID` | — | Pin a specific mode id if the name is ambiguous |
-| `SHUNT_CODE_WRITER_MODE_ID` | — | Pin a specific mode id if the name is ambiguous |
+Model precedence: `--model`, then the backend-specific environment variable, then
+the default. No automatic model/provider fallback. Payloads travel through stdin,
+so they do not depend on the command-line argument size limit.
 
-## What doesn't get delegated
+Claude workers disable tools, customizations, MCP loading and persistence. Codex
+workers use a temporary working directory, a read-only sandbox, disabled shell,
+apps/plugins/memory/subagents/web search, and ignore user config while retaining
+CLI authentication. Managed policies still apply. A custom Codex provider from
+user config is therefore not loaded by this adapter.
 
-The plugin is designed to know when NOT to delegate:
-- **Debugging** — requires Claude's reasoning, not a summary
-- **Editing** — Claude needs exact content in context; use targeted reads (offset/limit)
-- **Small files** — delegation overhead exceeds savings under 350 lines
-- **Architectural decisions** — judgment calls stay on Claude
+Timeouts terminate the worker process group. A recursion marker prevents a worker
+from invoking Shunt again. The main agent retains responsibility for debugging,
+architecture, checking exact values, and reviewing generated code.
 
-## Evals
+## Host differences
+
+Claude includes the existing large-file `Read`/`Bash` hooks, redirecting to
+`/shunt:bulk-reader`. Targeted reads are permitted by the Read hook. The Bash hook
+is a heuristic, not a security boundary. Code generation uses skill guidance.
+
+Codex uses the shared skills and scripts. The Claude-specific hooks do not enforce
+Codex tool routing; do not assume the same automatic interception on both hosts.
+
+## Authentication troubleshooting
+
+`claude auth status` shows which authentication source is selected. An API credit
+error does not imply your Claude subscription is exhausted. To test subscription
+authentication without changing global settings, omit API credentials only for
+that child process:
 
 ```bash
-# Hook routing + transport plumbing — needs no Portal access
-bash evals/run.sh
-
-# Also re-measure token savings against the real modes — needs portal-cli auth
-bash evals/run.sh --benchmark
+env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN \
+  plugins/shunt/scripts/bulk-read --backend claude \
+  --question "List exports" --paths src/module.ts
 ```
 
-## Benchmarks
+For Codex, check `codex login status`. If a requested model is unavailable, choose
+an accessible model with `--model`; Shunt does not silently substitute one.
 
-Tested against a 162K-line Java monorepo:
+## Validation
 
-| Scenario | Lines | Without shunt | With shunt | Savings |
-|----------|-------|--------------|------------|---------|
-| Single large file | 4,014 | 33,684 tokens | 5,737 tokens | 82% |
-| Source + test pair | 7,408 | 75,990 tokens | 4,148 tokens | 94% |
-| Multi-file cross-service | 1,281 | 16,221 tokens | 821 tokens | 94% |
-| Code-write | 3,667 | 40,614 tokens + generation | 833 lines to disk | - |
+```bash
+bash plugins/shunt/evals/run.sh
+claude plugin validate --strict plugins/shunt
+claude plugin validate --strict .
 
-Mean bulk-read savings: **90%**
+# Optional live context-size measurements; consumes account usage
+SHUNT_BACKEND=codex bash plugins/shunt/evals/run.sh --benchmark
+```
 
-## Known limitations
-
-- **No enforcement for code-writer** — only bulk-reader has hook enforcement. Code-writer relies on Claude recognizing when to use it via the skill description.
-- **Request size** — `aika:invoke-chat` input is passed on the command line, so a request must fit in `ARG_MAX` (1 MB on macOS, shared with the environment; Linux additionally caps a single argument at 128 KiB). shunt refuses anything over `SHUNT_MAX_PAYLOAD_BYTES` with a clear error rather than failing with `E2BIG`. Split into smaller batches.
-- **Invocation timeout** — shunt caps one action invocation at `SHUNT_TIMEOUT_SECONDS` (default 180). Very large generations can exceed it; raise the timeout or split the spec into smaller calls.
+The offline suite exercises both CLIs through stubs, including model selection,
+stdin delivery, structured responses, failures, process timeouts, and safe writes.
+Live benchmarks stop on invocation errors. They estimate source/returned context
+size only, excluding worker usage and main-agent review. The old AiKA benchmark
+percentages do not establish savings for these backends; measure your workload.

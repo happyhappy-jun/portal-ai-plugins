@@ -24,13 +24,13 @@
     },
     {
       "name": "shunt",
-      "description": "Shunts I/O-heavy work to AiKA modes to save tokens. Hooks block large file reads and redirect to bulk-reader/code-writer scripts backed by the Portal CLI.",
-      "version": "0.2.0",
+      "description": "Route bulk file reads and boilerplate generation to isolated Claude Sonnet or Codex Terra workers, without AiKA or Portal authentication.",
+      "version": "0.3.0",
       "author": {
         "name": "Spotify"
       },
       "homepage": "https://backstage.spotify.com/docs/portal",
-      "repository": "https://github.com/spotify/portal-ai-plugins",
+      "repository": "https://github.com/happyhappy-jun/portal-ai-plugins",
       "source": "./plugins/shunt",
       "category": "developer-tools"
     }
