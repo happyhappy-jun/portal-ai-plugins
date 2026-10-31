@@ -37,9 +37,11 @@ provide necessary conventions in the spec and reference files. Worker usage stil
 counts against the selected account or API billing. Reducing the main agent's
 context does not guarantee lower total token usage or cost.
 
-Claude's hooks redirect large full-file reads (over 350 lines by default) to the
-bulk-reader skill. Codex uses skill guidance rather than those Claude-specific
-hooks. Both hosts keep debugging, architecture, and final review in the main agent.
+Both hosts have synchronous pre-tool hooks that deny recognized bulk reads
+(over 350 lines by default) and direct the main agent to `bulk-reader`. Codex's
+hook covers shell reads through `exec_command` / `Bash` and supported direct read
+tools; it allows bounded `head`, `tail`, and `sed -n` ranges. Code generation still
+uses skill guidance. Both hosts keep debugging, architecture, and review in the main agent.
 
 ## Install and enable Shunt
 
@@ -56,7 +58,7 @@ claude plugin install shunt@portal --scope user
 claude plugin list --json
 ```
 
-Verify `shunt@portal` is version `0.3.0` or later and enabled. If it is disabled,
+Verify `shunt@portal` is version `0.4.0` or later and enabled. If it is disabled,
 run `claude plugin enable shunt@portal --scope user`. Start a **new Claude Code
 session**, then ask, for example:
 
@@ -73,11 +75,20 @@ codex plugin add shunt@portal
 codex plugin list --json --marketplace portal
 ```
 
-Verify `shunt@portal` is version `0.3.0` or later and `enabled: true`. If a previous
+Verify `shunt@portal` is version `0.4.0` or later and `enabled: true`. If a previous
 installation was disabled, enable Shunt in `/plugins` or set the existing
 `[plugins."shunt@portal"]` entry to `enabled = true` in `~/.codex/config.toml`.
-Start a **new Codex chat/session** and ask it to use Shunt's bulk-reader or
-code-writer skill. The skills select the backend matching the host.
+Start a **new Codex chat/session**. In Codex CLI, open `/hooks`, review the
+Shunt hook from `hooks/codex.json`, and trust that exact definition. Installation
+and `enabled: true` alone do not activate untrusted hooks; updated definitions
+require review again. Then ask Codex to use Shunt's bulk-reader or code-writer
+skill. The skills select the backend matching the host.
+
+The Codex hook denies the original call before it executes and supplies a
+`bulk-read --backend codex` command. It is a routing guardrail for recognized
+readers, not a sandbox: arbitrary Python/Node scripts, dynamic shell expansion,
+MCP readers, and writes to an already-running shell are not inspected. See
+[hook coverage](plugins/shunt/README.md#host-differences).
 
 ### Migrating an existing Spotify marketplace
 
@@ -182,7 +193,7 @@ and invoke `/skill:setup`.
 ## Repository layout
 
 ```text
-plugins/shunt/                Shunt skills, worker scripts, Claude hooks, and evals
+plugins/shunt/                Shunt skills, worker scripts, host hooks, and evals
   .claude-plugin/plugin.json  Claude Code manifest
   .codex-plugin/plugin.json   Codex manifest
 skills/                      Original Portal and Fleetshift workflows

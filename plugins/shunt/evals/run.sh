@@ -120,13 +120,14 @@ run_suite() {
 
 # Runs as a child process: the suite stubs the worker CLIs, and that stub must not
 # leak into the benchmarks below, which need the real one.
-run_transport_suite() {
+run_python_suite() {
+  local script="$1" label="$2"
   echo ""
-  echo "Transport (scripts/lib/worker.py, stubbed Claude/Codex CLIs)"
+  echo "$label"
   echo "────────────────────────────────────────────────────────────────"
 
   local output counts p f
-  output=$(bash "$SCRIPT_DIR/transport-evals.sh" 2>&1) || true
+  output=$(python3 "$SCRIPT_DIR/$script" 2>&1) || true
 
   printf '%s\n' "$output" | grep -v '^## ' || true
   # `|| true` so a missing trailer reaches the fallback below instead of
@@ -136,7 +137,7 @@ run_transport_suite() {
   f=$(printf '%s' "$counts" | awk '{print $3}')
 
   if [ -z "$p" ]; then
-    printf "  \033[31mFAIL\033[0m  %-32s suite did not report results\n" "transport-evals"
+    printf "  \033[31mFAIL\033[0m  %-32s suite did not report results\n" "$script"
     FAILED=$((FAILED + 1))
     TOTAL=$((TOTAL + 1))
     return
@@ -156,7 +157,8 @@ run_benchmarks() {
 
 run_suite "$SCRIPT_DIR/../hooks/check-file-size" "$SCRIPT_DIR/hook-evals.json" "Read hook (check-file-size)"
 run_suite "$SCRIPT_DIR/../hooks/check-bash-read" "$SCRIPT_DIR/bash-hook-evals.json" "Bash hook (check-bash-read)"
-run_transport_suite
+run_python_suite test_workers.py "Transport (stubbed Claude/Codex CLIs)"
+run_python_suite test_codex_hooks.py "Codex PreToolUse routing"
 
 echo ""
 echo "════════════════════════════════════════════════════════════════"

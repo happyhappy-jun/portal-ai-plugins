@@ -1,6 +1,6 @@
 {
   "name": "shunt",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Route bulk file reads and boilerplate generation to isolated Claude Sonnet or Codex Terra workers, without AiKA or Portal authentication.",
   "author": {
     "name": "Spotify"
@@ -31,5 +31,6 @@
       "Use Shunt to summarize large files.",
       "Use Shunt to generate code from a reference file."
     ]
-  }
+  },
+  "hooks": "./hooks/codex.json"
 }
