@@ -1,93 +1,205 @@
-# Spotify Portal AI Plugins
+# Portal AI Plugins — Shunt for Claude Code and Codex
 
-Bring [Spotify Portal](https://portal.spotify.com) into Claude Code, Codex, Cursor, and pi.
+This fork of [spotify/portal-ai-plugins](https://github.com/spotify/portal-ai-plugins)
+provides **Shunt**, which delegates bulk file reads and repetitive code generation
+to separate Claude Code or Codex CLI workers. It also retains the original
+**Portal** workflows for Spotify Portal users.
 
-This plugin provides focused workflows for the
-[Portal CLI](https://www.npmjs.com/package/@spotify/portal-cli): set up
-authentication, search your software catalog, build service briefings, run
-diagnostics, and invoke Portal actions.
+| Plugin | Purpose | Hosts | Requirements |
+| --- | --- | --- | --- |
+| **[shunt](plugins/shunt/README.md)** | Bulk reading and boilerplate generation in a separate model context | Claude Code, Codex | Authenticated host CLI; no AiKA or Portal account |
+| **portal** | Software catalog search, service briefings, Portal actions, and Fleetshift | Claude Code, Codex, Cursor, pi | Portal CLI and a Portal account |
 
-## Highlights
+The marketplace name remains `portal`; install `shunt@portal` to use Shunt.
+Installing the `portal` plugin is optional and is not a prerequisite for Shunt.
 
-- Set up the Portal CLI for your current coding-agent environment.
-- Run read-only diagnostics to verify plugin, CLI, authentication, and action readiness.
-- Search the software catalog and technical documentation using natural language queries.
-- Generate concise service briefings with available ownership, health, incident, and documentation details.
-- Discover and safely invoke Portal actions with built-in help, dry-run, and confirmation safeguards.
-- Create, run, check, and troubleshoot Fleetshift shifts, open PRs from completed runs, and stop a run on request.
+## How Shunt works
 
-The marketplace also ships **shunt** for Claude Code and Codex: bulk file reads and boilerplate generation run in isolated CLI workers, using Claude `sonnet` or Codex `gpt-6.1-terra` by default. Shunt needs no AiKA or Portal account. See [`plugins/shunt/README.md`](plugins/shunt/README.md).
+```text
+Main agent — planning, debugging, decisions, and review
+  │
+  ├── bulk-read  ── source files + question ── worker ── concise answer
+  └── code-write ── references + spec ─────── worker ── generated file
+```
 
-## Installation
+| Running host | Backend | Default worker model |
+| --- | --- | --- |
+| Claude Code | `claude --print` | `sonnet` |
+| Codex | `codex exec` | `gpt-6.1-terra` |
+
+The main agent keeps its current model. The scripts read the supplied files and
+send their content directly to the worker through stdin. With `--target`, generated
+code is saved to disk and the main agent receives a short status message.
+
+Workers run as **isolated CLI processes**, not native `Agent` / `spawn_agent`
+subagents. They do not inherit the main conversation or project instructions;
+provide necessary conventions in the spec and reference files. Worker usage still
+counts against the selected account or API billing. Reducing the main agent's
+context does not guarantee lower total token usage or cost.
+
+Claude's hooks redirect large full-file reads (over 350 lines by default) to the
+bulk-reader skill. Codex uses skill guidance rather than those Claude-specific
+hooks. Both hosts keep debugging, architecture, and final review in the main agent.
+
+## Install and enable Shunt
+
+Use **this fork** to get the Claude/Codex worker implementation.
+Requirements: macOS or Linux, Bash, Python 3.9+, `jq` for Claude hooks, and a
+signed-in CLI with access to the selected model. Tested with Claude Code 2.1.316
+and Codex CLI 0.166.0.
 
 ### Claude Code
 
 ```bash
-claude plugin marketplace add spotify/portal-ai-plugins
-claude plugin install portal@portal
-claude plugin install shunt@portal   # optional: Sonnet worker delegation
+claude plugin marketplace add happyhappy-jun/portal-ai-plugins
+claude plugin install shunt@portal --scope user
+claude plugin list --json
 ```
 
-Start a new session and run:
+Verify `shunt@portal` is version `0.3.0` or later and enabled. If it is disabled,
+run `claude plugin enable shunt@portal --scope user`. Start a **new Claude Code
+session**, then ask, for example:
 
 ```text
-/portal:setup
+Use /shunt:bulk-reader to summarize the exported APIs in these large files.
+Use /shunt:code-writer to generate tests following an existing test file.
 ```
 
 ### Codex
 
 ```bash
-codex plugin marketplace add spotify/portal-ai-plugins
-codex
+codex plugin marketplace add happyhappy-jun/portal-ai-plugins
+codex plugin add shunt@portal
+codex plugin list --json --marketplace portal
 ```
 
-Open `/plugins`, install Spotify Portal, start a new task, and ask:
+Verify `shunt@portal` is version `0.3.0` or later and `enabled: true`. If a previous
+installation was disabled, enable Shunt in `/plugins` or set the existing
+`[plugins."shunt@portal"]` entry to `enabled = true` in `~/.codex/config.toml`.
+Start a **new Codex chat/session** and ask it to use Shunt's bulk-reader or
+code-writer skill. The skills select the backend matching the host.
 
-```text
-Set up Spotify Portal for me.
-```
+### Migrating an existing Spotify marketplace
 
-### Cursor
-
-Register the [spotify/portal-ai-plugins](https://github.com/spotify/portal-ai-plugins)
-repository in your Cursor team marketplace, then install Spotify Portal from
-**Cursor Settings → Plugins**.
-
-### pi
+If `portal` already points to `spotify/portal-ai-plugins`, adding this fork under
+the same marketplace name can fail. Inspect the registered source first:
 
 ```bash
-pi install git:github.com/spotify/portal-ai-plugins
+claude plugin marketplace list --json
+codex plugin marketplace list --json
 ```
 
-Start a new session and run:
+To replace the source, remove the old marketplace in the relevant host, then run
+that host's install commands above:
 
-```text
-/skill:setup
+```bash
+claude plugin marketplace remove portal --scope user
+# or, for Codex:
+codex plugin marketplace remove portal
 ```
 
-## Workflows
+**Claude marketplace removal also uninstalls its plugins and can delete their
+saved options and data.** Preserve any needed plugin settings first. Reinstall
+`portal@portal` too if you were using the Portal workflows, and verify enabled
+states after reinstalling. CLI authentication is managed separately.
+
+### Updating this fork later
+
+```bash
+# Claude Code
+claude plugin marketplace update portal
+claude plugin update shunt@portal --scope user
+
+# Codex
+codex plugin marketplace upgrade portal
+codex plugin add shunt@portal
+```
+
+Restart the host session after updates. Existing chats may still have older skill
+instructions loaded.
+
+## Script usage and model overrides
+
+From a checkout, run the following in your project directory. Replace the script
+path with an absolute path if the plugin is installed elsewhere.
+
+```bash
+plugins/shunt/scripts/bulk-read --backend claude \
+  --question "Which functions write to the database?" --paths src/service.ts src/db.ts
+
+plugins/shunt/scripts/code-write --backend codex \
+  --spec "Write unit tests following this example" \
+  --reference tests/existing.test.ts --reference src/service.ts \
+  --target tests/service.test.ts
+```
+
+Use `--model` per call, or set `SHUNT_CLAUDE_MODEL` / `SHUNT_CODEX_MODEL` to override
+`sonnet` / `gpt-6.1-terra`. `SHUNT_BACKEND` can select a backend explicitly.
+`--reference` is repeatable. Targets are replaced only after a successful,
+non-empty structured result; failures and timeouts preserve existing files.
+Review generated changes and run appropriate checks.
+
+The workers use existing CLI authentication. In Claude, `ANTHROPIC_API_KEY` can
+select API billing even when a subscription login is available. An API credit
+error is not evidence that your subscription quota is exhausted. See the
+[authentication troubleshooting and full configuration](plugins/shunt/README.md#authentication-troubleshooting).
+
+## Optional Portal workflows
+
+The original [Spotify Portal](https://portal.spotify.com) integration is independent
+of Shunt. Install it only when you want catalog search, operational service context,
+Portal actions, or Fleetshift repository transformations.
+
+```bash
+# Claude Code
+claude plugin install portal@portal
+# In a new session: /portal:setup
+
+# Codex
+codex plugin add portal@portal
+# In a new chat: "Set up Spotify Portal for me."
+```
 
 | Workflow | Purpose |
 | --- | --- |
 | `setup` | Configure Portal CLI authentication |
 | `doctor` | Run read-only readiness diagnostics |
 | `search` | Search the software catalog and technical documentation |
-| `service` | Produce a concise operational service briefing |
-| `actions` | Discover, inspect, preview, and safely invoke Portal actions |
-| `feedback` | Submit feedback about the Portal CLI to the Portal team |
-| `fleetshift-create-shift` | Draft and create a Fleetshift shift from a goal, with a dry-run preview |
-| `fleetshift-run-shift` | Trigger a shift, monitor it with a bounded wait, and stop it on request |
-| `fleetshift-check-shift` | Report a shift's progress, targets, and PRs (read-only) |
-| `fleetshift-troubleshoot-shift` | Diagnose failed shift jobs from their status and logs (read-only) |
-| `fleetshift-create-prs` | Open PRs for completed shift targets after confirmation |
+| `service` | Produce an operational service briefing |
+| `actions` | Discover, inspect, preview, and invoke Portal actions |
+| `feedback` | Submit Portal CLI feedback |
+| `fleetshift-create-shift` | Define a repository transformation with a dry-run preview |
+| `fleetshift-run-shift` | Run, monitor, or stop a shift |
+| `fleetshift-check-shift` | Inspect target and PR progress |
+| `fleetshift-troubleshoot-shift` | Diagnose failed targets |
+| `fleetshift-create-prs` | Open PRs from completed targets |
 
-## Portal CLI
+These workflows invoke `npx @spotify/portal-cli` and require Portal setup.
+Cursor and pi support the **Portal** workflows only: register this repository in
+your Cursor team marketplace, or run `pi install git:github.com/happyhappy-jun/portal-ai-plugins`
+and invoke `/skill:setup`.
 
-The workflows invoke the upstream CLI through:
+## Repository layout
 
-```bash
-npx @spotify/portal-cli <command>
+```text
+plugins/shunt/                Shunt skills, worker scripts, Claude hooks, and evals
+  .claude-plugin/plugin.json  Claude Code manifest
+  .codex-plugin/plugin.json   Codex manifest
+skills/                      Original Portal and Fleetshift workflows
+.claude-plugin/              Root Portal manifest and Claude marketplace
+.codex-plugin/               Root Portal manifest for Codex
+.agents/plugins/             Codex marketplace listing Portal and Shunt
+.cursor-plugin/              Portal manifest for Cursor
+package.json                 Portal-only pi package
 ```
 
-Setup verifies the required `auth`, `actions`, `owner`, `search`, and `service`
-commands before proceeding.
+## Validation
+
+```bash
+bash plugins/shunt/evals/run.sh
+claude plugin validate --strict plugins/shunt
+claude plugin validate --strict .
+```
+
+See the [Shunt README](plugins/shunt/README.md) for the worker contract, host
+limitations, authentication details, and optional live context-size measurements.
