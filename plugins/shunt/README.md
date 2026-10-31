@@ -119,8 +119,41 @@ Claude includes the existing large-file `Read`/`Bash` hooks, redirecting to
 `/shunt:bulk-reader`. Targeted reads are permitted by the Read hook. The Bash hook
 is a heuristic, not a security boundary. Code generation uses skill guidance.
 
-Codex uses the shared skills and scripts. The Claude-specific hooks do not enforce
-Codex tool routing; do not assume the same automatic interception on both hosts.
+Codex explicitly loads `hooks/codex.json` through its manifest. Its synchronous
+`PreToolUse` hook returns `hookSpecificOutput.permissionDecision: "deny"`, stopping
+the original tool before execution and providing a `bulk-read --backend codex`
+command. It does not run the worker itself. Allowed calls return `{}` so the normal
+host permission checks still apply.
+
+**Trust is required:** after installing/updating, open `/hooks` in a new Codex CLI
+session, review Shunt's hook, and trust the current definition. Installed/enabled
+plugins can still have untrusted hooks, which Codex skips. Check for startup
+warnings. The exact hook must show enabled and trusted; don't use a global
+hook-trust bypass for normal operation.
+
+Codex coverage:
+
+- Shell / unified exec (`Bash`, `exec_command`, `shell`, `shell_command`): literal
+  file operands of `cat`, `head`, `tail`, `less`, `more`, and `sed`.
+- Common command chains, newlines, pipes, `cd`, explicit work directories, quoted
+  paths, stdin redirection, simple `env`/`command` prefixes and `sh`/`bash`/`zsh -c`.
+- Direct `Read`, `read_file`, and `read_text_file` calls with `file_path`/`path`.
+  An offset alone does not limit output; a positive `limit` within the threshold does.
+- Small files and bounded `head`/`tail` or simple `sed -n 'start,endp'` ranges are
+  permitted. Bare `sed '1,20p'` still prints the whole file and is denied for large
+  files. Piping an unbounded read does not exempt it; request the bounded range
+  directly. Plain stdout copies (`cat file > output`) do not enter model context.
+- The hook reads local files only far enough to establish the threshold. It never
+  executes the proposed command and leaves missing paths to the tool's own errors.
+
+This is a routing guardrail, not a complete security boundary. It does not inspect
+arbitrary scripts or shell functions, globs/variable/command expansion, MCP readers,
+other tools, or later `write_stdin` input to an existing shell. Managed host policy
+or disabled hooks can also prevent activation. The worker process itself disables
+plugins and receives its files through stdin, so it is not recursively blocked.
+
+See [Codex's official hook contract](https://learn.chatgpt.com/docs/hooks) for
+hook discovery, aliases, trust, and tool coverage.
 
 ## Authentication troubleshooting
 

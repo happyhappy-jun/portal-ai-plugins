@@ -24,3 +24,8 @@ Worker tokens still count toward that account's usage. Do not claim total-token 
 Verify exact values and line numbers with targeted reads before editing.
 If invocation fails, report the error. Do not silently switch providers or models.
 Keep debugging, architectural decisions, and small targeted reads in the main agent.
+
+Codex also has a synchronous PreToolUse guard for recognized bulk reads. When it
+denies a read, use the provided worker command; do not change readers to bypass it.
+The plugin hook must be trusted in Codex `/hooks` before it runs. A new or changed
+hook definition can require trust again. Use bounded reads for precise edits.

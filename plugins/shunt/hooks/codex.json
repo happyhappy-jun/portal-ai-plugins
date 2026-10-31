@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|exec_command|shell|shell_command|Read|read_file|read_text_file)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${PLUGIN_ROOT}/hooks/check-codex-read.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking Shunt bulk-read routing"
+          }
+        ]
+      }
+    ]
+  }
+}
