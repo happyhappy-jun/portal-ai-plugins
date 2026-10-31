@@ -16,7 +16,7 @@ diagnostics, and invoke Portal actions.
 - Discover and safely invoke Portal actions with built-in help, dry-run, and confirmation safeguards.
 - Create, run, check, and troubleshoot Fleetshift shifts, open PRs from completed runs, and stop a run on request.
 
-The marketplace also ships **shunt** (Claude Code only for now): a plugin that routes I/O-heavy agent work — bulk file reads and boilerplate generation — to AiKA modes running cheaper worker models, via the Portal CLI actions registry. See [`plugins/shunt/README.md`](plugins/shunt/README.md).
+The marketplace also ships **shunt** for Claude Code and Codex: bulk file reads and boilerplate generation run in isolated CLI workers, using Claude `sonnet` or Codex `gpt-6.1-terra` by default. Shunt needs no AiKA or Portal account. See [`plugins/shunt/README.md`](plugins/shunt/README.md).
 
 ## Installation
 
@@ -25,7 +25,7 @@ The marketplace also ships **shunt** (Claude Code only for now): a plugin that r
 ```bash
 claude plugin marketplace add spotify/portal-ai-plugins
 claude plugin install portal@portal
-claude plugin install shunt@portal   # optional: token-saving AiKA delegation
+claude plugin install shunt@portal   # optional: Sonnet worker delegation
 ```
 
 Start a new session and run:

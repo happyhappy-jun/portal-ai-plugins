@@ -1,5 +1,5 @@
 #!/bin/bash
-# Block Bash commands that read large files, redirect to /bulk-reader skill
+# Block Bash commands that read large files, redirect to /shunt:bulk-reader skill
 # Catches cat/head/tail/less/more that bypass the Read hook
 
 MIN_LINES="${SHUNT_MIN_LINES:-350}"
@@ -34,7 +34,7 @@ fi
 
 lines=$(wc -l < "$file_path" 2>/dev/null | tr -d ' ' || echo "0")
 if [ "$lines" -gt "$MIN_LINES" ]; then
-  echo "{\"decision\": \"block\", \"reason\": \"File is ${lines} lines (threshold: ${MIN_LINES}). Use the /bulk-reader skill to delegate this read to AiKA instead of cat/head/tail.\"}"
+  echo "{\"decision\": \"block\", \"reason\": \"File is ${lines} lines (threshold: ${MIN_LINES}). Use the /shunt:bulk-reader skill to delegate this read to the configured Claude/Codex worker instead of cat/head/tail.\"}"
 else
   echo '{"decision": "allow"}'
 fi

@@ -1,0 +1,35 @@
+{
+  "name": "shunt",
+  "version": "0.3.0",
+  "description": "Route bulk file reads and boilerplate generation to isolated Claude Sonnet or Codex Terra workers, without AiKA or Portal authentication.",
+  "author": {
+    "name": "Spotify"
+  },
+  "homepage": "https://backstage.spotify.com/docs/portal",
+  "repository": "https://github.com/happyhappy-jun/portal-ai-plugins",
+  "license": "Apache-2.0",
+  "keywords": [
+    "token-optimization",
+    "model-routing",
+    "delegation",
+    "claude",
+    "codex"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Shunt",
+    "shortDescription": "Delegate bulk reads and boilerplate to worker models",
+    "longDescription": "Route bulk file reads and boilerplate generation to isolated Claude Sonnet or Codex Terra workers, without AiKA or Portal authentication.",
+    "developerName": "happyhappy-jun",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read",
+      "Write",
+      "CLI"
+    ],
+    "defaultPrompt": [
+      "Use Shunt to summarize large files.",
+      "Use Shunt to generate code from a reference file."
+    ]
+  }
+}

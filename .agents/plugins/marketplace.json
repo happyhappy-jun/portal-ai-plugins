@@ -1,0 +1,32 @@
+{
+  "name": "portal",
+  "interface": {
+    "displayName": "Portal and Shunt"
+  },
+  "plugins": [
+    {
+      "name": "portal",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    },
+    {
+      "name": "shunt",
+      "source": {
+        "source": "local",
+        "path": "./plugins/shunt"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}
